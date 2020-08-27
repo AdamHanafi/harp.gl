@@ -3,7 +3,6 @@
  * Licensed under Apache 2.0, see full license in LICENSE
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import {
     OrientedBox3,
     Projection,
@@ -11,7 +10,7 @@ import {
     TileKey,
     TilingScheme
 } from "@here/harp-geoutils";
-import { assert } from "@here/harp-utils";
+import { assert, MathUtils } from "@here/harp-utils";
 import * as THREE from "three";
 
 import { DataSource } from "./DataSource";
@@ -160,6 +159,17 @@ export class FrustumIntersection {
             this.mapView.projection.type === ProjectionType.Spherical || useElevationRangeSource;
         const uniqueZoomLevels = new Set(zoomLevels);
 
+        // Gather the minimum and maximum geometry heights of all datasources to enlarge the
+        // bounding boxes of tiles for visibility tests.
+        let minGeometryHeight = 0;
+        let maxGeometryHeight = 0;
+        dataSources.forEach(dataSource => {
+            minGeometryHeight = Math.min(minGeometryHeight, dataSource.minGeometryHeight);
+            maxGeometryHeight = Math.max(maxGeometryHeight, dataSource.maxGeometryHeight);
+        });
+        minGeometryHeight = Math.max(minGeometryHeight, -1000);
+        maxGeometryHeight = Math.max(minGeometryHeight, Math.min(maxGeometryHeight, 1000));
+
         const cache = {
             calculationFinal: true,
             tileBounds: obbIntersections ? new OrientedBox3() : new THREE.Box3()
@@ -180,6 +190,8 @@ export class FrustumIntersection {
                 offset,
                 tilingScheme,
                 cache,
+                minGeometryHeight,
+                maxGeometryHeight,
                 useElevationRangeSource ? elevationRangeSource : undefined
             );
 
@@ -235,6 +247,8 @@ export class FrustumIntersection {
                     offset,
                     tilingScheme,
                     cache,
+                    minGeometryHeight,
+                    maxGeometryHeight,
                     useElevationRangeSource ? elevationRangeSource : undefined
                 );
 
@@ -266,6 +280,8 @@ export class FrustumIntersection {
         offset: number,
         tilingScheme: TilingScheme,
         cache: { calculationFinal: boolean; tileBounds: OrientedBox3 | THREE.Box3 },
+        minGeometryHeight: number,
+        maxGeometryHeight: number,
         elevationRangeSource?: ElevationRangeSource
     ): TileKeyEntry | undefined {
         const geoBox = getGeoBox(tilingScheme, tileKey, offset);
@@ -282,6 +298,10 @@ export class FrustumIntersection {
                 cache.calculationFinal &&
                 range.calculationStatus === CalculationStatus.FinalPrecise;
         }
+
+        // Enlarge the bounding boxes of tiles with min/max geometry height for visibility tests.
+        geoBox.southWest.altitude = (geoBox.southWest.altitude ?? 0) + minGeometryHeight;
+        geoBox.northEast.altitude = (geoBox.northEast.altitude ?? 0) + maxGeometryHeight;
 
         this.mapView.projection.projectBox(geoBox, cache.tileBounds);
         const { area, distance } = this.computeTileAreaAndDistance(cache.tileBounds);
