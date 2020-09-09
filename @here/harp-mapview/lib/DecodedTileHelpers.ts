@@ -34,7 +34,7 @@ import {
     MapMeshStandardMaterial,
     SolidLineMaterial
 } from "@here/harp-materials";
-import { assert, LoggerManager, pick } from "@here/harp-utils";
+import { assert, LoggerManager } from "@here/harp-utils";
 import * as THREE from "three";
 
 import { DisplacedMesh } from "./geometry/DisplacedMesh";
@@ -227,7 +227,7 @@ export function createMaterial(
         // Special case for ShaderTechnique.
         applyShaderTechniqueToMaterial(technique, material);
     } else {
-        MapMaterialAdapter.create(material, getMainMaterialStyledProps(technique));
+        MapMaterialAdapter.create(material, getMainMaterialStyledProps(material, technique));
     }
     return material;
 }
@@ -453,28 +453,108 @@ export function getMaterialConstructor(
     }
 }
 
+const AUTOMATIC_MATERIAL_PROPERTIES = [
+    "depthTest",
+    "opacity",
+    "polygonOffset",
+    "polygonOffsetFactor",
+    "polygonOffsetUnits",
+    "transparent"
+];
+
+const AUTOMATIC_STANDARD_MATERIAL_PROPERTIES = [
+    "bumpScale",
+    "color",
+    "displacementBias",
+    "displacementScale",
+    "emissive",
+    "emissiveIntensity",
+    "metalness",
+    "normalScale",
+    "refractionRatio",
+    "roughness",
+    "wireframe",
+    "wireframeLinewidth"
+];
+
+const AUTOMATIC_MESH_MATERIAL_PROPERTIES = [
+    "color",
+    "reflectivity",
+    "refractionRatio",
+    "wireframe",
+    "wireframeLinewidth"
+];
+
 /**
- * Styled properties of main material (created by [[createMaterial]]) managed by
- * [[MapObjectAdapter]].
+ * Gets the automatic properties from the technique.
+ *
+ * @remarks
+ * Automatic properties are always kept in sync
+ * with their matching technique value.
+ *
+ * @param material The underlying `THREE.Material`.
+ * @param technique The technique
+ * @param automaticProperties Array of automatic properties.
  */
-function getMainMaterialStyledProps(technique: Technique): StyledProperties {
+function getAutomaticStyledProperties<T extends object, K extends keyof T>(
+    material: THREE.Material,
+    technique: T,
+    automaticProperties?: K[]
+): Pick<T, K> {
+    const result: any = {};
+
+    if (Array.isArray(automaticProperties)) {
+        for (const propName of automaticProperties) {
+            if (technique.hasOwnProperty(propName)) {
+                result[propName] = technique[propName];
+            }
+        }
+    }
+
+    // add automatic properties shared by all the THREE.Material
+    AUTOMATIC_MATERIAL_PROPERTIES.forEach(propName => {
+        if (technique.hasOwnProperty(propName)) {
+            result[propName] = (technique as any)[propName];
+        }
+    });
+
+    // add the automatic properties specific to the technique material.
+    if (material instanceof THREE.MeshStandardMaterial) {
+        AUTOMATIC_STANDARD_MATERIAL_PROPERTIES.forEach(propName => {
+            if (technique.hasOwnProperty(propName)) {
+                result[propName] = (technique as any)[propName];
+            }
+        });
+    } else if (material instanceof THREE.MeshBasicMaterial) {
+        AUTOMATIC_MESH_MATERIAL_PROPERTIES.forEach(propName => {
+            if (technique.hasOwnProperty(propName)) {
+                result[propName] = (technique as any)[propName];
+            }
+        });
+    }
+
+    return result;
+}
+
+/**
+ * Styled properties of main material (created by `createMaterial`) managed by
+ * `MapObjectAdapter`.
+ */
+function getMainMaterialStyledProps(
+    material: THREE.Material,
+    technique: Technique
+): StyledProperties {
     switch (technique.name) {
         case "dashed-line":
         case "solid-line": {
-            const baseProps: StyledProperties = pick(technique, [
+            const baseProps: StyledProperties = getAutomaticStyledProperties(material, technique, [
                 "color",
                 "outlineColor",
-                "transparent",
-                "opacity",
                 "caps",
                 "drawRangeStart",
                 "drawRangeEnd",
                 "dashes",
-                "dashColor",
-                "polygonOffset",
-                "polygonOffsetFactor",
-                "polygonOffsetUnits",
-                "depthTest"
+                "dashColor"
             ]);
             baseProps.lineWidth = buildMetricValueEvaluator(
                 technique.lineWidth ?? 0, // Compatibility: `undefined` lineWidth means hidden.
@@ -493,29 +573,13 @@ function getMainMaterialStyledProps(technique: Technique): StyledProperties {
             return baseProps;
         }
         case "fill":
-            return pick(technique, [
-                "color",
-                "transparent",
-                "opacity",
-                "polygonOffset",
-                "polygonOffsetFactor",
-                "polygonOffsetUnits"
-            ]);
+            return getAutomaticStyledProperties(material, technique, []);
         case "standard":
         case "terrain":
         case "extruded-polygon": {
-            const baseProps: StyledProperties = pick(technique, [
+            const baseProps: StyledProperties = getAutomaticStyledProperties(material, technique, [
                 "vertexColors",
-                "wireframe",
-                "roughness",
-                "metalness",
                 "alphaTest",
-                "depthTest",
-                "transparent",
-                "opacity",
-                "emissive",
-                "emissiveIntensity",
-                "refractionRatio",
                 "normalMapType"
                 // All texture related properties are skipped as for now as they are handled by
                 // [[createMaterial]] directly without possibility for them to be dynamic.
@@ -529,20 +593,12 @@ function getMainMaterialStyledProps(technique: Technique): StyledProperties {
         }
         case "circles":
         case "squares":
-            return pick(technique, ["color", "size", "opacity", "transparent"]);
+            return getAutomaticStyledProperties(material, technique, ["color", "size"]);
         case "extruded-line":
-            return pick(technique, [
-                "color",
-                "wireframe",
-                "transparent",
-                "opacity",
-                "polygonOffset",
-                "polygonOffsetFactor",
-                "polygonOffsetUnits"
-            ]);
+            return getAutomaticStyledProperties(material, technique, ["color"]);
         case "line":
         case "segments":
-            return pick(technique, ["color", "transparent", "opacity"]);
+            return getAutomaticStyledProperties(material, technique, ["color"]);
         default:
             return {};
     }
