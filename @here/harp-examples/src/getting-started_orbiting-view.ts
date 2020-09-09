@@ -9,6 +9,8 @@ import { CopyrightElementHandler, MapView, MapViewEventNames } from "@here/harp-
 import { VectorTileDataSource } from "@here/harp-vectortile-datasource";
 import { GUI } from "dat.gui";
 
+const Stats = require("stats.js");
+
 import { apikey } from "../config";
 
 /**
@@ -33,9 +35,16 @@ export namespace CameraOrbitExample {
 
     // snippet:harp_gl_camera_orbit_example_1.ts
     const dubai = new GeoCoordinates(25.19705, 55.27419);
-    const options = { target: dubai, tilt: 25, zoomLevel: 16.1, heading: 0, globe: true };
+    const options = {
+        target: dubai,
+        tilt: 25,
+        zoomLevel: 16.1,
+        heading: 0,
+        globe: true,
+        headingSpeed: 0.1
+    };
     map.addEventListener(MapViewEventNames.AfterRender, () => {
-        options.heading = (options.heading + 0.1) % 360;
+        options.heading = (options.heading + options.headingSpeed) % 360;
         map.lookAt(options);
         map.update();
         updateHTML();
@@ -48,6 +57,14 @@ export namespace CameraOrbitExample {
     gui.add(options, "globe").onChange(() => {
         map.projection = options.globe ? sphereProjection : mercatorProjection;
     });
+    gui.add(options, "headingSpeed", 0.1, 10, 0.1);
+
+    const stats = new Stats();
+    stats.domElement.style.bottom = "0px";
+    stats.domElement.style.top = "";
+    document.body.appendChild(stats.domElement);
+    map.addEventListener(MapViewEventNames.Render, stats.begin);
+    map.addEventListener(MapViewEventNames.AfterRender, stats.end);
 
     function createBaseMap(): MapView {
         document.body.innerHTML += getExampleHTML();
